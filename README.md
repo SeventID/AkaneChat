@@ -4,7 +4,7 @@
 
 AkaneChat is an open-source TUI project built with Bun and OpenTUI. It is designed to work with local gateways such as OmniRoute, as well as other compatible API providers.
 
-> Early development: the current `0.1.0` scaffold is a UI foundation, not a feature-complete chat client.
+> Early development: Version `0.1.1` includes streaming chat, persistent multi-conversation history, and response cancellation. The project is still under active development.
 
 ## Goals
 

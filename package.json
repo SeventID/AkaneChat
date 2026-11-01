@@ -1,6 +1,6 @@
 {
   "name": "akanechat",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A full-screen terminal AI chat client for OpenAI-compatible providers.",
   "license": "Apache-2.0",
   "author": "SeventID",
