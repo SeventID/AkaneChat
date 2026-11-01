@@ -43,6 +43,7 @@ You can also connect or switch models from inside the TUI:
 - `/chats` — list saved conversations and their short IDs
 - `/switch <id-prefix>` — reopen a saved conversation
 - `/clear` — clear only the current conversation
+- `Esc` — stop the current response and keep any partial answer
 - `/help` — show commands
 - `/quit` — exit
 

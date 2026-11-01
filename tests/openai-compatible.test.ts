@@ -49,6 +49,28 @@ describe("OpenAI-compatible provider", () => {
     expect(sentBody?.stream).toBe(true);
   });
 
+  test("passes an abort signal to the streaming request", async () => {
+    let receivedSignal: AbortSignal | null | undefined;
+    const controller = new AbortController();
+    const client = createOpenAICompatibleClient({
+      baseUrl: "http://localhost:1234/v1",
+      model: "demo",
+      fetch: async (_input, init) => {
+        receivedSignal = init?.signal;
+        return new Response(new ReadableStream<Uint8Array>({
+          start(streamController) {
+            streamController.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+          },
+        }));
+      },
+    });
+    const iterator = client.streamChat([{ role: "user", content: "Hai" }], controller.signal);
+    expect((await iterator.next()).value).toBe("partial");
+    expect(receivedSignal).toBe(controller.signal);
+    controller.abort();
+    await iterator.return("");
+  });
+
   test("surfaces provider HTTP errors", async () => {
     const client = createOpenAICompatibleClient({
       baseUrl: "http://localhost:1234/v1",

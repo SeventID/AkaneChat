@@ -23,6 +23,7 @@ let configured = Boolean(baseUrl && model);
 let client = baseUrl && model
   ? createOpenAICompatibleClient({ baseUrl, apiKey, model })
   : undefined;
+let activeRequest: AbortController | undefined;
 
 const historyPath = join(homedir(), ".local", "share", "akanechat", "history.json");
 const store = await loadConversationStore(historyPath);
@@ -235,11 +236,13 @@ async function sendMessage(raw: string): Promise<void> {
   const assistantLine = addLine("AKANE", "", "#D8DEE9");
   const assistantMessage: ChatMessage = { role: "assistant", content: "" };
   const pending = [...history.messages];
-  setStatus(`Generating with ${model}…`);
+  setStatus(`Generating with ${model}… · Esc to stop`);
   input.blur();
+  const requestController = new AbortController();
+  activeRequest = requestController;
 
   try {
-    for await (const chunk of client.streamChat(pending)) {
+    for await (const chunk of client.streamChat(pending, requestController.signal)) {
       assistantMessage.content += chunk;
       assistantLine.content = `AKANE\n${assistantMessage.content}`;
       transcript.scrollTo({ x: 0, y: transcript.scrollHeight });
@@ -249,10 +252,20 @@ async function sendMessage(raw: string): Promise<void> {
     await saveHistory();
     setStatus(`Ready · ${model}`);
   } catch (error) {
-    const message = error instanceof ProviderError ? error.message : error instanceof Error ? error.message : String(error);
-    assistantLine.content = `ERROR\n${message}`;
-    setStatus("Request failed · check provider settings");
+    if (requestController.signal.aborted) {
+      if (assistantMessage.content) {
+        history.messages.push(assistantMessage);
+        await saveHistory();
+      }
+      assistantLine.content = `AKANE (stopped)\n${assistantMessage.content || "Generation cancelled."}`;
+      setStatus("Generation stopped · partial answer kept");
+    } else {
+      const message = error instanceof ProviderError ? error.message : error instanceof Error ? error.message : String(error);
+      assistantLine.content = `ERROR\n${message}`;
+      setStatus("Request failed · check provider settings");
+    }
   } finally {
+    if (activeRequest === requestController) activeRequest = undefined;
     input.focus();
   }
 }
@@ -264,5 +277,9 @@ input.onSubmit = () => {
 };
 input.focus();
 renderer.keyInput.on("keypress", (key) => {
+  if (key.name === "escape" && activeRequest) {
+    activeRequest.abort();
+    return;
+  }
   if (key.ctrl && key.name === "c") renderer.destroy();
 });

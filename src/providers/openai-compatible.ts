@@ -88,7 +88,7 @@ export function createOpenAICompatibleClient(config: ProviderConfig) {
       return Array.isArray(payload.data) ? payload.data : [];
     },
 
-    async *streamChat(messages: ChatMessage[]): AsyncGenerator<string> {
+    async *streamChat(messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<string> {
       if (!config.model.trim()) throw new ProviderError("Choose a model before sending a message.");
       if (messages.length === 0) throw new ProviderError("A conversation must contain at least one message.");
 
@@ -96,6 +96,7 @@ export function createOpenAICompatibleClient(config: ProviderConfig) {
         method: "POST",
         headers: { ...headers, accept: "text/event-stream" },
         body: JSON.stringify({ model: config.model, messages, stream: true }),
+        signal,
       });
       await checkResponse(response);
       if (!response.body) throw new ProviderError("Provider returned an empty response stream.");
