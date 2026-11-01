@@ -261,6 +261,17 @@ async function openWorkspacePicker(): Promise<void> {
   }
 }
 
+function selectWorkspace(): void {
+  if (!workspacePicker) return;
+  const entry = workspacePicker.entries[workspacePicker.selected];
+  if (!entry) return;
+  workspacePath = entry.path;
+  workspacePicker.line.content += "\n\nSelected workspace: " + workspacePath;
+  workspacePicker = undefined;
+  void persistProviderSettings();
+  setStatus("Workspace selected · " + workspacePath);
+}
+
 function renderWorkspacePicker(): void {
   if (!workspacePicker) return;
   const { entries, selected } = workspacePicker;
@@ -953,14 +964,7 @@ input.onSubmit = () => {
     return;
   }
   if (workspacePicker) {
-    const entry = workspacePicker.entries[workspacePicker.selected];
-    if (entry) {
-      workspacePath = entry.path;
-      workspacePicker.line.content += "\n\nSelected workspace: " + workspacePath;
-      workspacePicker = undefined;
-      void persistProviderSettings();
-      setStatus("Workspace selected · " + workspacePath);
-    }
+    selectWorkspace();
     return;
   }
   if (modelPicker) {
@@ -981,6 +985,12 @@ renderer.keyInput.on("keypress", (key) => {
     return;
   }
   if (workspacePicker) {
+    // Enter is parsed as "return" by OpenTUI's raw terminal key parser.
+    // Handle it here because Android/Termux may not trigger InputRenderable.onSubmit.
+    if (key.name === "return" || key.name === "enter" || key.name === "linefeed") {
+      selectWorkspace();
+      return;
+    }
     if (key.name === "escape") {
       workspacePicker.line.content += "\n\nKeeping " + workspacePath;
       workspacePicker = undefined;
