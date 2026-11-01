@@ -12,6 +12,8 @@ import {
 } from "@opentui/core";
 import { getProviderDefinition, PROVIDER_REGISTRY, resolveProviderEnvironment } from "./providers/registry";
 import { createAnthropicClient, createGeminiClient } from "./providers/native";
+import { checkModel, shouldFailover } from "./provider-health";
+import { listWorkspaceDirectories, type WorkspaceEntry } from "./workspace";
 import {
   createOpenAICompatibleClient,
   type ChatMessage,
@@ -66,6 +68,10 @@ function createProviderClient(resolved: NonNullable<typeof initialProvider>): Ch
 let client = initialProvider ? createProviderClient(initialProvider) : undefined;
 let activeRequest: AbortController | undefined;
 let councilModels: string[] = savedSettings?.councilModels ?? [];
+let fallbackModels: string[] = savedSettings?.fallbackModels ?? [];
+let workspacePath = savedSettings?.workspace ?? homedir();
+let workspacePicker: { entries: WorkspaceEntry[]; selected: number; line: TextRenderable } | undefined;
+let providerWizard: { step: "base-url" | "api-key" | "model"; baseUrl?: string; apiKey?: string; models?: ModelInfo[] } | undefined;
 
 function createClientForModel(modelId: string): ChatProviderClient {
   const definition = getProviderDefinition(providerId);
@@ -122,6 +128,8 @@ async function persistProviderSettings(): Promise<void> {
       model,
       ...(baseUrl ? { baseUrl } : {}),
       ...(councilModels.length ? { councilModels } : {}),
+      ...(fallbackModels.length ? { fallbackModels } : {}),
+      workspace: workspacePath,
     });
   } catch {
     setStatus("Provider works, but settings could not be saved");
@@ -141,7 +149,7 @@ const body = new BoxRenderable(renderer, { width: "100%", flexGrow: 1, flexDirec
 const sidebar = new BoxRenderable(renderer, {
   width: 27, border: true, borderColor: "#414B5D", padding: 1, flexDirection: "column", gap: 1,
 });
-sidebar.add(new TextRenderable(renderer, { content: "WORKSPACE", fg: "#F2A6C7" }));
+sidebar.add(new TextRenderable(renderer, { content: "WORKSPACE\n" + workspacePath, fg: "#F2A6C7" }));
 const conversationInfo = new TextRenderable(renderer, { content: `●  ${history.title}\n${history.id.slice(0, 8)}`, fg: "#D8DEE9" });
 sidebar.add(conversationInfo);
 sidebar.add(new TextRenderable(renderer, { content: "\nPROVIDER", fg: "#F2A6C7" }));
@@ -157,7 +165,7 @@ const councilInfo = new TextRenderable(renderer, {
 });
 sidebar.add(councilInfo);
 sidebar.add(new TextRenderable(renderer, { content: "\nCOMMANDS", fg: "#F2A6C7" }));
-sidebar.add(new TextRenderable(renderer, { content: "/providers list providers\n/provider  choose provider\n/models    list models\n/model     choose model\n/new       new chat\n/chats     chat history\n/help      show help", fg: "#8792A5" }));
+sidebar.add(new TextRenderable(renderer, { content: "/providers list providers\n/provider  choose provider\n/provider add  add endpoint\n/models    list models\n/model     choose model\n/new       new chat\n/chats     chat history\n/help      show help", fg: "#8792A5" }));
 
 const panel = new BoxRenderable(renderer, {
   flexGrow: 1, border: true, borderColor: "#414B5D", padding: 1, flexDirection: "column", gap: 1,
@@ -199,7 +207,10 @@ function setStatus(message: string): void {
 }
 
 function addLine(label: string, content: string, color = "#D8DEE9"): TextRenderable {
-  const line = new TextRenderable(renderer, { content: `${label}\n${content}`, fg: color });
+  const secrets = [apiKey, providerWizard?.apiKey].filter((value): value is string => Boolean(value));
+  let safeContent = content;
+  for (const secret of secrets) safeContent = safeContent.split(secret).join("[REDACTED]");
+  const line = new TextRenderable(renderer, { content: `${label}\n${safeContent}`, fg: color });
   transcript.add(line);
   transcript.scrollTo({ x: 0, y: transcript.scrollHeight });
   return line;
@@ -214,6 +225,145 @@ function showWelcome(): void {
   for (const message of history.messages) addLine(message.role.toUpperCase(), message.content, message.role === "user" ? "#F2A6C7" : "#D8DEE9");
 }
 showWelcome();
+
+async function openWorkspacePicker(): Promise<void> {
+  try {
+    const home = homedir();
+    const directories = await listWorkspaceDirectories(home);
+    const entries: WorkspaceEntry[] = [
+      { name: workspacePath === home ? "✓ Use home directory" : "Use home directory", path: home, directory: true },
+      ...(workspacePath !== home ? [{ name: "✓ Keep current · " + workspacePath, path: workspacePath, directory: true }] : []),
+      ...directories,
+    ];
+    const selected = Math.max(0, entries.findIndex((entry) => entry.path === workspacePath));
+    const line = addLine("SELECT WORKSPACE", "", "#AAB4C5");
+    workspacePicker = { entries, selected, line };
+    renderWorkspacePicker();
+    setStatus("Choose a workspace · ↑ ↓ navigate · Enter select");
+  } catch (error) {
+    addLine("WORKSPACE PICKER", error instanceof Error ? error.message : String(error), "#FF8A8A");
+  }
+}
+
+function renderWorkspacePicker(): void {
+  if (!workspacePicker) return;
+  workspacePicker.line.content = [
+    "WORKSPACE · ↑ ↓ navigate · Enter select · Esc keep current",
+    ...workspacePicker.entries.map((entry, index) => (index === workspacePicker!.selected ? "▶" : " ") + " 📁 " + entry.name),
+  ].join("\n");
+}
+void openWorkspacePicker();
+
+async function checkStartupModel(): Promise<void> {
+  if (!client) return;
+  setStatus(`Checking ${providerName} · ${model}…`);
+  const result = await checkModel(client);
+  if (result.ok) {
+    addLine("MODEL HEALTH", `${model} · WORKING`, "#8FD7A5");
+    setStatus(`Ready · ${providerName} · ${model}`);
+    return;
+  }
+  addLine("MODEL HEALTH", `${model} · FAILED · ${result.reason ?? "Unknown error"}`, "#FF8A8A");
+  if (!result.retryable) {
+    setStatus("Primary model has a permanent configuration or access error; automatic failover skipped");
+    return;
+  }
+  for (const specification of fallbackModels.slice(0, 3)) {
+    try {
+      const fallbackClient = createCouncilClient(specification);
+      setStatus(`Primary unavailable · checking fallback ${specification}…`);
+      const health = await checkModel(fallbackClient);
+      if (!health.ok) {
+        addLine("FALLBACK", `${specification} · FAILED · ${health.reason ?? "Unavailable"}`, "#FF8A8A");
+        continue;
+      }
+      const separator = specification.indexOf("::");
+      const nextProvider = separator > 0 ? specification.slice(0, separator) : providerId;
+      const nextModel = separator > 0 ? specification.slice(separator + 2) : specification;
+      const definition = getProviderDefinition(nextProvider);
+      client = fallbackClient;
+      providerId = nextProvider;
+      providerName = definition?.name ?? nextProvider;
+      model = nextModel;
+      if (definition?.baseUrl) baseUrl = definition.baseUrl;
+      apiKey = definition?.apiKeyEnv ? process.env[definition.apiKeyEnv] : process.env.AKANECHAT_API_KEY;
+      providerInfo.content = `${providerName}\n${baseUrl}\n\nModel\n${model}`;
+      await persistProviderSettings();
+      addLine("AUTO FAILOVER", `Switched to ${providerId}::${model} · WORKING`, "#8FD7A5");
+      setStatus(`Ready · fallback ${providerName} · ${model}`);
+      return;
+    } catch (error) {
+      addLine("FALLBACK ERROR", `${specification} · ${error instanceof Error ? error.message : String(error)}`, "#FF8A8A");
+    }
+  }
+  setStatus("No working model · configure a fallback or choose another provider");
+}
+void checkStartupModel();
+
+interface ModelChoice { id: string; ok: boolean; reason?: string }
+let modelPicker: { choices: ModelChoice[]; selected: number; line: TextRenderable } | undefined;
+
+function renderModelPicker(): void {
+  if (!modelPicker) return;
+  modelPicker.line.content = [
+    "MODEL SELECTOR · ↑ ↓ navigate · Enter activate · Esc close",
+    ...modelPicker.choices.map((choice, index) => {
+      const marker = index === modelPicker!.selected ? "▶" : " ";
+      const state = choice.ok ? "● WORKING" : "○ FAILED";
+      return `${marker} ${state.padEnd(11)} ${choice.id}${choice.reason ? ` · ${choice.reason}` : ""}`;
+    }),
+  ].join("\n");
+}
+
+async function openModelPicker(): Promise<void> {
+  if (!client) {
+    addLine("SYSTEM", "Configure a provider first.", "#F2A6C7");
+    return;
+  }
+  setStatus("Loading model catalogue…");
+  try {
+    const catalogue = (await client.listModels()).slice(0, 20);
+    if (!catalogue.length) throw new Error("No models were returned by the provider.");
+    const choices: ModelChoice[] = [];
+    for (const item of catalogue) {
+      setStatus(`Checking model ${choices.length + 1}/${catalogue.length} · ${item.id}`);
+      const result = await checkModel(createClientForModel(item.id));
+      choices.push({ id: item.id, ok: result.ok, ...(result.reason ? { reason: result.reason } : {}) });
+    }
+    const firstWorking = choices.findIndex((item) => item.ok);
+    const currentIndex = choices.findIndex((item) => item.id === model && item.ok);
+    const line = addLine("MODEL SELECTOR", "", "#AAB4C5");
+    modelPicker = { choices, selected: currentIndex >= 0 ? currentIndex : Math.max(0, firstWorking), line };
+    renderModelPicker();
+    setStatus(`${choices.filter((item) => item.ok).length} working · ${choices.filter((item) => !item.ok).length} failed · choose with arrows`);
+  } catch (error) {
+    addLine("MODEL DISCOVERY FAILED", error instanceof Error ? error.message : String(error), "#FF8A8A");
+    setStatus("Could not open model selector");
+  }
+}
+
+async function activatePickedModel(): Promise<void> {
+  if (!modelPicker) return;
+  const choice = modelPicker.choices[modelPicker.selected];
+  if (!choice?.ok) return;
+  const nextClient = createClientForModel(choice.id);
+  const health = await checkModel(nextClient);
+  if (!health.ok) {
+    choice.ok = false;
+    choice.reason = health.reason;
+    renderModelPicker();
+    setStatus("Model became unavailable; choose another WORKING model");
+    return;
+  }
+  model = choice.id;
+  client = nextClient;
+  providerInfo.content = `${providerName}\n${baseUrl}\n\nModel\n${model}`;
+  modelPicker.line.content += "\n\nActivated · WORKING";
+  modelPicker = undefined;
+  await persistProviderSettings();
+  setStatus(`Model selected · ${model}`);
+  addLine("SYSTEM", `Model changed to ${model} · WORKING.`, "#8FD7A5");
+}
 
 async function listModels(filter = ""): Promise<void> {
   if (!client) {
@@ -242,6 +392,53 @@ async function collectResponse(target: ChatProviderClient, messages: ChatMessage
   let output = "";
   for await (const chunk of target.streamChat(messages, signal)) output += chunk;
   return output;
+}
+
+async function streamWithFallback(
+  messages: ChatMessage[],
+  signal: AbortSignal,
+  onChunk: (chunk: string) => void,
+): Promise<void> {
+  if (!client) throw new Error("No active provider.");
+  const candidates: Array<{ specification: string; target: ChatProviderClient }> = [
+    { specification: `${providerId}::${model}`, target: client },
+  ];
+  for (const specification of fallbackModels.slice(0, 3)) {
+    try { candidates.push({ specification, target: createCouncilClient(specification) }); }
+    catch (error) { addLine("FALLBACK CONFIG", `${specification} · ${error instanceof Error ? error.message : String(error)}`, "#FF8A8A"); }
+  }
+  let lastError: unknown;
+  for (let index = 0; index < candidates.length; index++) {
+    const candidate = candidates[index]!;
+    let emitted = false;
+    try {
+      for await (const chunk of candidate.target.streamChat(messages, signal)) {
+        emitted = true;
+        onChunk(chunk);
+      }
+      if (index > 0) {
+        const separator = candidate.specification.indexOf("::");
+        const nextProvider = separator > 0 ? candidate.specification.slice(0, separator) : providerId;
+        const nextModel = separator > 0 ? candidate.specification.slice(separator + 2) : candidate.specification;
+        const definition = getProviderDefinition(nextProvider);
+        client = candidate.target;
+        providerId = nextProvider;
+        providerName = definition?.name ?? nextProvider;
+        model = nextModel;
+        if (definition?.baseUrl) baseUrl = definition.baseUrl;
+        apiKey = definition?.apiKeyEnv ? process.env[definition.apiKeyEnv] : process.env.AKANECHAT_API_KEY;
+        providerInfo.content = `${providerName}\n${baseUrl}\n\nModel\n${model}`;
+        await persistProviderSettings();
+        addLine("AUTO FAILOVER", `Request recovered with ${providerId}::${model}`, "#8FD7A5");
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      if (signal.aborted || emitted || !shouldFailover(error) || index === candidates.length - 1) throw error;
+      addLine("AUTO FAILOVER", `${candidate.specification} unavailable; trying ${candidates[index + 1]!.specification}`, "#F2A6C7");
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("All configured models failed.");
 }
 
 async function sendCouncil(content: string): Promise<void> {
@@ -319,9 +516,88 @@ async function sendCouncil(content: string): Promise<void> {
 
 async function sendMessage(raw: string): Promise<void> {
   const content = raw.trim();
-  if (!content) return;
+  if (!content && providerWizard?.step !== "api-key") return;
+  if (providerWizard?.step === "base-url") {
+    try {
+      const parsed = new URL(content);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Only HTTP or HTTPS endpoints are supported.");
+      providerWizard.baseUrl = content.replace(/\/+$/, "");
+      providerWizard.step = "api-key";
+      addLine("PROVIDER SETUP", "Enter API Key. Input is visible while typing, but will not be added to chat history or logs. Leave empty if the endpoint needs no key.", "#F2A6C7");
+      input.placeholder = "API Key (visible input; Enter to continue)…";
+    } catch (error) {
+      addLine("INVALID URL", error instanceof Error ? error.message : String(error), "#FF8A8A");
+    }
+    return;
+  }
+  if (providerWizard?.step === "api-key") {
+    providerWizard.apiKey = content || undefined;
+    const base = providerWizard.baseUrl!;
+    const key = providerWizard.apiKey;
+    setStatus("Discovering models…");
+    try {
+      const discovery = createOpenAICompatibleClient({ baseUrl: base, apiKey: key, model: "model-discovery" });
+      const models = await discovery.listModels();
+      if (!models.length) throw new Error("The endpoint returned no models from /models.");
+      providerWizard.models = models.slice(0, 60);
+      providerWizard.step = "model";
+      addLine("DISCOVERED MODELS", providerWizard.models.map((item, index) => `${index + 1}. ${item.id}`).join("\n"), "#AAB4C5");
+      addLine("SELECT MODEL", "Type the number of the model to test and activate. The previous provider stays active until the test succeeds.", "#F2A6C7");
+      input.placeholder = "Model number…";
+      setStatus(`Found ${models.length} models · choose one`);
+    } catch (error) {
+      providerWizard = undefined;
+      input.placeholder = "Message AkaneChat… (Enter to send)";
+      addLine("MODEL DISCOVERY FAILED", error instanceof Error ? error.message : String(error), "#FF8A8A");
+      setStatus("Provider setup cancelled");
+    }
+    return;
+  }
+  if (providerWizard?.step === "model") {
+    const selectedIndex = Number.parseInt(content, 10) - 1;
+    const selected = providerWizard.models?.[selectedIndex];
+    if (!selected) {
+      addLine("INVALID SELECTION", "Choose a valid model number from the list.", "#F2A6C7");
+      return;
+    }
+    const wizard = providerWizard;
+    const nextClient = createOpenAICompatibleClient({ baseUrl: wizard.baseUrl!, apiKey: wizard.apiKey, model: selected.id });
+    setStatus(`Checking ${selected.id}…`);
+    const health = await checkModel(nextClient);
+    if (!health.ok) {
+      addLine("MODEL FAILED", `${selected.id} · ${health.reason ?? "Health check failed"}. Existing provider remains active.`, "#FF8A8A");
+      providerWizard = undefined;
+      input.placeholder = "Message AkaneChat… (Enter to send)";
+      setStatus("Provider setup cancelled");
+      return;
+    }
+    baseUrl = wizard.baseUrl!;
+    apiKey = wizard.apiKey;
+    model = selected.id;
+    providerName = "Custom endpoint";
+    providerId = "custom";
+    client = nextClient;
+    configured = true;
+    providerInfo.content = `${providerName}\n${baseUrl}\n\nModel\n${model}`;
+    providerWizard = undefined;
+    input.placeholder = "Message AkaneChat… (Enter to send)";
+    await persistProviderSettings();
+    addLine("PROVIDER READY", `Connected to ${baseUrl} · ${model} · WORKING. API key is kept in memory for this session only.`, "#8FD7A5");
+    setStatus(`Ready · ${providerName} · ${model}`);
+    return;
+  }
+  if (content === "/provider add") {
+    providerWizard = { step: "base-url" };
+    addLine("ADD PROVIDER", "Custom OpenAI-compatible provider setup. Enter the Base URL (for example, http://127.0.0.1:20128/v1).", "#F2A6C7");
+    input.placeholder = "Base URL…";
+    return;
+  }
   if (content === "/help") {
-    addLine("HELP", "/status                 show active configuration\n/providers              list supported providers\n/provider <id> [model]  select and save provider\n/connect <url> <model>  use a custom endpoint\n/models [filter]        list/filter provider models\n/model <id>             switch model\n/council <a,b,...>     enable multi-model review (max 4)\n/council off            disable multi-model review\n/new                    start a fresh conversation\n/chats                  list saved conversations\n/switch <id-prefix>     switch conversation\n/clear                  clear only the current conversation\n/help                   show this help\n/quit                   exit AkaneChat", "#AAB4C5");
+    addLine("HELP", "/status                 show active configuration\n/providers              list supported providers\n/provider add            add custom provider interactively\n/provider <id> [model]  select and save provider\n/connect <url> <model>  use a custom endpoint\n/models [filter]        list/filter provider models\n/model                   open checked model selector\n/model <id>             switch model\n/fallback                list fallback models\n/fallback add p::m       add cross-provider fallback\n/council <a,b,...>     enable multi-model review (max 4)\n/council off            disable multi-model review\n/new                    start a fresh conversation\n/chats                  list saved conversations\n/switch <id-prefix>     switch conversation\n/clear                  clear only the current conversation\n/help                   show this help\n/quit                   exit AkaneChat", "#AAB4C5");
+    return;
+  }
+  if (content === "/workspace") {
+    await openWorkspacePicker();
     return;
   }
   if (content === "/status") {
@@ -377,6 +653,33 @@ async function sendMessage(raw: string): Promise<void> {
     }
     return;
   }
+  if (content === "/fallback") {
+    addLine("FALLBACK MODELS", fallbackModels.length ? fallbackModels.join("\n") : "No fallback models configured. Add one with /fallback add provider::model", "#AAB4C5");
+    return;
+  }
+  if (content.startsWith("/fallback add ")) {
+    const specification = content.slice(14).trim();
+    if (!specification.includes("::") || fallbackModels.includes(specification) || fallbackModels.length >= 3) {
+      addLine("USAGE", "/fallback add provider::model (maximum 3 unique fallback models)", "#F2A6C7");
+      return;
+    }
+    try {
+      createCouncilClient(specification);
+      fallbackModels.push(specification);
+      await persistProviderSettings();
+      addLine("FALLBACK", `Added ${specification}. It will be checked at startup and after transient primary failures.`, "#AAB4C5");
+    } catch (error) {
+      addLine("FALLBACK ERROR", error instanceof Error ? error.message : String(error), "#FF8A8A");
+    }
+    return;
+  }
+  if (content.startsWith("/fallback remove ")) {
+    const specification = content.slice(17).trim();
+    fallbackModels = fallbackModels.filter((item) => item !== specification);
+    await persistProviderSettings();
+    addLine("FALLBACK", `Removed ${specification} if it was configured.`, "#AAB4C5");
+    return;
+  }
   if (content === "/models") return listModels();
   if (content.startsWith("/models ")) return listModels(content.slice(8).trim());
   if (content.startsWith("/connect ")) {
@@ -404,6 +707,10 @@ async function sendMessage(raw: string): Promise<void> {
     }
     return;
   }
+  if (content === "/model") {
+    await openModelPicker();
+    return;
+  }
   if (content.startsWith("/model ")) {
     const nextModel = content.slice(7).trim();
     if (!nextModel) return;
@@ -411,12 +718,20 @@ async function sendMessage(raw: string): Promise<void> {
       addLine("SYSTEM", "Connect a provider first with /connect <base-url> <model-id>.", "#F2A6C7");
       return;
     }
+    const nextClient = createClientForModel(nextModel);
+    setStatus(`Checking model · ${nextModel}…`);
+    const health = await checkModel(nextClient);
+    if (!health.ok) {
+      addLine("MODEL CHECK FAILED", `${nextModel} · ${health.reason ?? "Unavailable"}. Previous model remains active.`, "#FF8A8A");
+      setStatus(`Model unchanged · ${model}`);
+      return;
+    }
     model = nextModel;
-    client = createClientForModel(model);
+    client = nextClient;
     providerInfo.content = `${providerName}\n${baseUrl}\n\nModel\n${model}`;
     setStatus(`Model selected · ${model}`);
     await persistProviderSettings();
-    addLine("SYSTEM", `Model changed to ${model} and saved locally.`, "#AAB4C5");
+    addLine("SYSTEM", `Model changed to ${model} · WORKING and saved locally.`, "#AAB4C5");
     return;
   }
   if (content === "/council off") {
@@ -507,11 +822,11 @@ async function sendMessage(raw: string): Promise<void> {
   activeRequest = requestController;
 
   try {
-    for await (const chunk of client.streamChat(pending, requestController.signal)) {
+    await streamWithFallback(pending, requestController.signal, (chunk) => {
       assistantMessage.content += chunk;
       assistantLine.content = `AKANE\n${assistantMessage.content}`;
       transcript.scrollTo({ x: 0, y: transcript.scrollHeight });
-    }
+    });
     if (!assistantMessage.content) assistantMessage.content = "(Provider returned an empty response.)";
     history.messages.push(assistantMessage);
     await saveHistory();
@@ -538,10 +853,57 @@ async function sendMessage(raw: string): Promise<void> {
 input.onSubmit = () => {
   const value = input.value;
   input.value = "";
+  if (workspacePicker) {
+    const entry = workspacePicker.entries[workspacePicker.selected];
+    if (entry) {
+      workspacePath = entry.path;
+      workspacePicker.line.content += "\n\nSelected workspace: " + workspacePath;
+      workspacePicker = undefined;
+      void persistProviderSettings();
+      setStatus("Workspace selected · " + workspacePath);
+    }
+    return;
+  }
+  if (modelPicker) {
+    void activatePickedModel();
+    return;
+  }
   void sendMessage(value);
 };
 input.focus();
 renderer.keyInput.on("keypress", (key) => {
+  if (workspacePicker) {
+    if (key.name === "escape") {
+      workspacePicker.line.content += "\n\nKeeping " + workspacePath;
+      workspacePicker = undefined;
+      setStatus("Workspace unchanged · " + workspacePath);
+      return;
+    }
+    if (key.name === "up" || key.name === "down") {
+      const direction = key.name === "down" ? 1 : -1;
+      workspacePicker.selected = (workspacePicker.selected + direction + workspacePicker.entries.length) % workspacePicker.entries.length;
+      renderWorkspacePicker();
+      return;
+    }
+  }
+  if (modelPicker) {
+    if (key.name === "escape") {
+      modelPicker.line.content += "\n\nSelection cancelled.";
+      modelPicker = undefined;
+      setStatus(`Model unchanged · ${model}`);
+      return;
+    }
+    if (key.name === "up" || key.name === "down") {
+      const direction = key.name === "down" ? 1 : -1;
+      let next = modelPicker.selected;
+      for (let count = 0; count < modelPicker.choices.length; count++) {
+        next = (next + direction + modelPicker.choices.length) % modelPicker.choices.length;
+        if (modelPicker.choices[next]!.ok) { modelPicker.selected = next; break; }
+      }
+      renderModelPicker();
+      return;
+    }
+  }
   if (key.name === "escape" && activeRequest) {
     activeRequest.abort();
     return;

@@ -7,6 +7,8 @@ export interface AppSettings {
   model: string;
   baseUrl?: string;
   councilModels?: string[];
+  fallbackModels?: string[];
+  workspace?: string;
 }
 
 export async function loadSettings(path: string): Promise<AppSettings | undefined> {
@@ -19,6 +21,8 @@ export async function loadSettings(path: string): Promise<AppSettings | undefine
       model: value.model,
       ...(typeof value.baseUrl === "string" ? { baseUrl: value.baseUrl } : {}),
       ...(Array.isArray(value.councilModels) && value.councilModels.every((item) => typeof item === "string") ? { councilModels: value.councilModels.slice(0, 4) } : {}),
+      ...(Array.isArray(value.fallbackModels) && value.fallbackModels.every((item) => typeof item === "string") ? { fallbackModels: value.fallbackModels.slice(0, 3) } : {}),
+      ...(typeof value.workspace === "string" ? { workspace: value.workspace } : {}),
     };
   } catch {
     return undefined;

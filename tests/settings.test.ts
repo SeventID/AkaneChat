@@ -9,11 +9,12 @@ describe("app settings", () => {
     const directory = await mkdtemp(join(tmpdir(), "akane-settings-"));
     const path = join(directory, "nested", "settings.json");
     try {
-      await saveSettings(path, { version: 1, provider: "openrouter", model: "some/model", councilModels: ["openai::gpt-test", "gemini::flash-test"] });
+      await saveSettings(path, { version: 1, provider: "openrouter", model: "some/model", councilModels: ["openai::gpt-test", "gemini::flash-test"], fallbackModels: ["groq::llama-test"] });
       const raw = await readFile(path, "utf8");
       expect(raw).not.toContain("apiKey");
       expect((await loadSettings(path))?.provider).toBe("openrouter");
       expect((await loadSettings(path))?.councilModels).toEqual(["openai::gpt-test", "gemini::flash-test"]);
+      expect((await loadSettings(path))?.fallbackModels).toEqual(["groq::llama-test"]);
       expect((await stat(path)).mode & 0o777).toBe(0o600);
     } finally {
       await rm(directory, { recursive: true, force: true });

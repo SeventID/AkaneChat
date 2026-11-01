@@ -12,7 +12,12 @@ AkaneChat is an open-source terminal user interface (TUI) for chatting with AI m
 - Built-in OpenAI, OpenRouter, Groq, Ollama, Anthropic, and Google Gemini providers
 - Any OpenAI-compatible endpoint, including OmniRoute
 - Stream model responses in real time across provider adapters
-- Select providers and models inside the TUI; save non-secret preferences locally
+- Add custom OpenAI-compatible providers interactively with Base URL, visible API-key entry, and automatic model discovery
+- Health-check the active model at startup and before switching models; retain the previous model when checks fail
+- Configure up to three cross-provider fallback models for transient failures and startup recovery
+- Interactive model selector marks working/failed models and arrow navigation skips failed models
+- Startup workspace directory picker remembers the selected project directory
+- Workspace path safety helpers reject traversal and symlinks
 - Optional multi-model council: run 2–4 models in parallel, peer-review answers, then synthesize a final response
 - List available models and switch models during a session
 - Create, list, reopen, and clear multiple conversations
@@ -87,11 +92,17 @@ You can also connect or change the model from inside the TUI:
 
 - `/status` — show the active provider, model, endpoint, and council selection
 - `/providers` — list all supported providers
-- `/provider <id> <model-id>` — select a provider and model (e.g. `/provider gemini gemini-2.5-flash`)
+- `/provider add` — add a custom OpenAI-compatible provider interactively; Base URL and visible API-key input are requested, then `/models` is discovered
+- `/provider <id> <model-id>` — select a built-in provider and model
 - `/connect <base-url> <model-id>` — connect a custom OpenAI-compatible endpoint
 - `/models` — list the first 60 models exposed by the current provider
 - `/models <filter>` — filter the provider's model catalog
-- `/model <model-id>` — switch model
+- `/model` — open the interactive health-checked model selector (arrow keys skip failed models)
+- `/model <model-id>` — switch model after a health check
+- `/fallback` — list cross-provider fallbacks
+- `/fallback add provider::model` — add a fallback (up to three)
+- `/fallback remove provider::model` — remove a fallback
+- `/workspace` — reopen the workspace directory picker
 - `/council <model-a,model-b[,model-c,model-d]>` — enable bounded multi-model review (2–4 models)
 - Use `provider::model` for cross-provider agents, e.g. `/council openai::gpt-4o,gemini::gemini-2.5-flash,anthropic::claude-sonnet-4-5`. Each provider reads its own environment API key.
 - `/council off` — disable council mode
@@ -105,7 +116,11 @@ You can also connect or change the model from inside the TUI:
 | `/provider <id> [model-id]` | Select and save provider/model |
 | `/connect <base-url> <model-id>` | Connect to an API endpoint for this session |
 | `/models [filter]` | List/filter available models (60 displayed at a time) |
-| `/model <model-id>` | Switch the active model |
+| `/provider add` | Add a custom OpenAI-compatible provider interactively |
+| `/model` | Open interactive checked model selector |
+| `/model <model-id>` | Switch the active model after a health check |
+| `/fallback [add/remove provider::model]` | Manage up to three cross-provider fallbacks |
+| `/workspace` | Reopen the startup workspace picker |
 | `/council <model-a,model-b,...>` | Enable multi-model review (2–4 models; cross-provider via `provider::model`) |
 | `/council off` | Disable multi-model review |
 | `/new` | Create a new conversation |
@@ -118,8 +133,8 @@ You can also connect or change the model from inside the TUI:
 
 ## Data and security
 
-- API keys are read from provider-specific environment variables; they are never written to conversation history or settings.
-- Provider preferences and the optional council model selection are stored at `~/.local/share/akanechat/settings.json` with mode `0600`; the directory uses mode `0700`. API keys are never included.
+- Built-in provider API keys are read from environment variables. A custom provider API key entered through /provider add is visible while typing and held in memory only for the current process; it is not persisted, logged, or added to conversation history.
+- Provider preferences, fallback model IDs, and the optional council model selection are stored at `~/.local/share/akanechat/settings.json` with mode `0600`; the directory uses mode `0700`. API keys are never included.
 - Council mode runs at most four selected models concurrently, then one peer-review pass and one synthesis call. Each generation is capped at 2,048 output tokens. It is opt-in and can be cancelled with `Esc`; usage/cost depends on the selected provider and models.
 - Conversation history is stored locally at `~/.local/share/akanechat/history.json`.
 - The storage layer writes atomically and uses restrictive permissions (directory `0700`, file `0600`).
