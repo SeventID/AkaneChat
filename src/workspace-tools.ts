@@ -123,6 +123,16 @@ export async function prepareWorkspaceWrite(root: string, path: string, content:
   return { path, content, existed };
 }
 
+export function getUnsupportedWorkspaceTool(error: unknown): WorkspaceToolName | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/(?:try\s+)?disabl(?:e|ing)\s+[\'\"]?(list_files|read_file|search_files|write_file)[\'\"]?/i);
+  return match?.[1]?.toLowerCase() as WorkspaceToolName | undefined;
+}
+
+export function getAvailableWorkspaceToolDefinitions(disabled: ReadonlySet<string>): (typeof WORKSPACE_TOOL_DEFINITIONS)[number][] {
+  return WORKSPACE_TOOL_DEFINITIONS.filter((definition) => !disabled.has(definition.function.name));
+}
+
 export const WORKSPACE_TOOL_DEFINITIONS = [
   { type: "function", function: { name: "list_files", description: "List files in the selected workspace. Sensitive, generated, and dependency paths are excluded.", parameters: { type: "object", properties: { directory: { type: "string", description: "Relative directory, default ." } }, additionalProperties: false } } },
   { type: "function", function: { name: "read_file", description: "Read a UTF-8 text file in the selected workspace. Sensitive and binary files are blocked.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false } } },

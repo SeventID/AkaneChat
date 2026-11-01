@@ -1,10 +1,32 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { applyWorkspaceWrite, listWorkspaceFiles, prepareWorkspaceWrite, readWorkspaceText, safeWorkspacePath, searchWorkspaceText } from "../src/workspace-tools";
+import { applyWorkspaceWrite, getAvailableWorkspaceToolDefinitions, getUnsupportedWorkspaceTool, listWorkspaceFiles, prepareWorkspaceWrite, readWorkspaceText, safeWorkspacePath, searchWorkspaceText, WORKSPACE_TOOL_DEFINITIONS } from "../src/workspace-tools";
 import { tmpdir } from "node:os";
 
+describe("workspace tool capability handling", () => {
+  test("detects only explicitly named unsupported workspace tools", () => {
+    expect(getUnsupportedWorkspaceTool(new Error("No endpoints found that support tool use. Try disabling 'list_files'."))).toBe("list_files");
+    expect(getUnsupportedWorkspaceTool(new Error("No endpoints found that support tool use."))).toBeUndefined();
+  });
+
+  test("disables one tool without removing other tool definitions", () => {
+    const remaining = getAvailableWorkspaceToolDefinitions(new Set(["list_files"])) as Array<{ function: { name: string } }>;
+    expect(remaining.map((tool) => tool.function.name)).toEqual(["read_file", "search_files", "write_file"]);
+    expect(WORKSPACE_TOOL_DEFINITIONS).toHaveLength(4);
+  });
+});
+
 describe("workspace agent tools", () => {
+  test("identifies a provider-rejected tool without deleting its definition", () => {
+    expect(getUnsupportedWorkspaceTool(new Error("No endpoints found that support tool use. Try disabling \"list_files\"."))).toBe("list_files");
+    expect(getUnsupportedWorkspaceTool(new Error("Try disabling read_file"))).toBe("read_file");
+    expect(getUnsupportedWorkspaceTool(new Error("Unauthorized"))).toBeUndefined();
+    const remaining = getAvailableWorkspaceToolDefinitions(new Set(["list_files"]));
+    expect(remaining.map((tool) => tool.function.name)).toEqual(["read_file", "search_files", "write_file"]);
+    expect(WORKSPACE_TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual(["list_files", "read_file", "search_files", "write_file"]);
+  });
+
   test("lists, reads, and searches workspace text", async () => {
     const root = await mkdtemp(join(tmpdir(), "akane-agent-"));
     try {
