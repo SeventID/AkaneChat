@@ -1,7 +1,7 @@
 {
   "name": "akanechat",
   "version": "0.1.2",
-  "description": "A full-screen terminal AI chat client for OpenAI-compatible providers.",
+  "description": "A full-screen terminal AI chat client for OpenAI-compatible APIs, built with Bun and OpenTUI.",
   "license": "Apache-2.0",
   "author": "SeventID",
   "type": "module",
@@ -29,5 +29,24 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "typescript": "^5.9.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SeventID/AkaneChat.git"
+  },
+  "homepage": "https://github.com/SeventID/AkaneChat#readme",
+  "bugs": {
+    "url": "https://github.com/SeventID/AkaneChat/issues"
+  },
+  "keywords": [
+    "ai",
+    "chat",
+    "terminal",
+    "tui",
+    "llm",
+    "openai-compatible",
+    "bun",
+    "opentui",
+    "omniroute"
+  ]
 }
