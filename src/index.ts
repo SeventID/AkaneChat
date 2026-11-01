@@ -950,8 +950,10 @@ async function sendMessage(raw: string): Promise<void> {
   }
 }
 
-input.onSubmit = () => {
+function handleInputSubmit(): void {
   const value = input.value;
+  // Clear synchronously so the raw-key fallback and InputRenderable.onSubmit
+  // cannot submit the same input twice.
   input.value = "";
   if (pendingApproval) {
     const approval = pendingApproval;
@@ -972,7 +974,9 @@ input.onSubmit = () => {
     return;
   }
   void sendMessage(value);
-};
+}
+
+input.onSubmit = handleInputSubmit;
 input.focus();
 renderer.keyInput.on("keypress", (key) => {
   if (pendingApproval && key.name === "escape") {
@@ -1005,6 +1009,10 @@ renderer.keyInput.on("keypress", (key) => {
     }
   }
   if (modelPicker) {
+    if (key.name === "return" || key.name === "enter" || key.name === "linefeed") {
+      void activatePickedModel();
+      return;
+    }
     if (key.name === "escape") {
       modelPicker.line.content += "\n\nSelection cancelled.";
       modelPicker = undefined;
@@ -1021,6 +1029,13 @@ renderer.keyInput.on("keypress", (key) => {
       renderModelPicker();
       return;
     }
+  }
+  // Termux/Android keyboards can emit a raw Return key without causing
+  // InputRenderable.onSubmit. Keep a raw-key fallback for normal chat and
+  // command input as well as the interactive setup wizard.
+  if (key.name === "return" || key.name === "enter" || key.name === "linefeed") {
+    handleInputSubmit();
+    return;
   }
   if (key.name === "escape" && activeRequest) {
     activeRequest.abort();
