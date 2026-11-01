@@ -21,6 +21,31 @@ AkaneChat is an open-source TUI project built with Bun and OpenTUI. It is design
 - Bun `>=1.3.14`
 - A terminal with UTF-8 support
 
+## Configure a provider
+
+AkaneChat connects to any provider that implements the OpenAI-compatible Chat Completions API.
+
+Set these environment variables before launching:
+
+```bash
+export AKANECHAT_BASE_URL="http://127.0.0.1:20128/v1"
+export AKANECHAT_API_KEY="" # optional for local providers
+export AKANECHAT_MODEL="your-model-id"
+bun run start
+```
+
+You can also connect or switch models from inside the TUI:
+
+- `/connect <base-url> <model-id>` — connect for the current session
+- `/models` — list models exposed by the provider
+- `/model <model-id>` — switch model
+- `/new` — start a new conversation
+- `/clear` — clear the current conversation and saved history
+- `/help` — show commands
+- `/quit` — exit
+
+The API key is read only from `AKANECHAT_API_KEY`; it is never written to conversation history. Chat history is stored locally at `~/.local/share/akanechat/history.json`.
+
 ## Development
 
 ```bash
