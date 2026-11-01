@@ -106,6 +106,30 @@ export function createOpenAICompatibleClient(config: ProviderConfig) {
       let buffer = "";
       let finished = false;
 
+      const decodeFrame = (frame: string): string[] => {
+        const data = frame
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).replace(/^ /, ""))
+          .join("\n");
+        if (!data) return [];
+        if (data.trim() === "[DONE]") {
+          finished = true;
+          return [];
+        }
+        let chunk: ChatCompletionChunk;
+        try {
+          chunk = JSON.parse(data) as ChatCompletionChunk;
+        } catch {
+          throw new ProviderError("Provider sent an invalid streaming response.");
+        }
+        if (chunk.error?.message) throw new ProviderError(chunk.error.message);
+        const content = chunk.choices?.[0]?.delta?.content;
+        if (typeof content === "string" && content) return [content];
+        if (Array.isArray(content)) return content.flatMap((part) => part.text ? [part.text] : []);
+        return [];
+      };
+
       try {
         while (!finished) {
           const { value, done } = await reader.read();
@@ -114,32 +138,19 @@ export function createOpenAICompatibleClient(config: ProviderConfig) {
           buffer = frames.pop() ?? "";
 
           for (const frame of frames) {
-            for (const line of frame.split(/\r?\n/)) {
-              if (!line.startsWith("data:")) continue;
-              const data = line.slice(5).trim();
-              if (!data) continue;
-              if (data === "[DONE]") {
-                finished = true;
-                break;
-              }
-              let chunk: ChatCompletionChunk;
-              try {
-                chunk = JSON.parse(data) as ChatCompletionChunk;
-              } catch {
-                throw new ProviderError("Provider sent an invalid streaming response.");
-              }
-              if (chunk.error?.message) throw new ProviderError(chunk.error.message);
-              const content = chunk.choices?.[0]?.delta?.content;
-              if (typeof content === "string" && content) yield content;
-              else if (Array.isArray(content)) {
-                for (const part of content) if (part.text) yield part.text;
-              }
-            }
+            for (const text of decodeFrame(frame)) yield text;
             if (finished) break;
           }
-          if (done) break;
+          if (done) {
+            // SSE permits the final event to end at EOF without a blank separator.
+            if (!finished && buffer.trim()) {
+              for (const text of decodeFrame(buffer)) yield text;
+            }
+            break;
+          }
         }
       } finally {
+        if (signal?.aborted) await reader.cancel().catch(() => undefined);
         reader.releaseLock();
       }
     },

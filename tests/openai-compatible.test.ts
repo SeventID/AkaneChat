@@ -49,6 +49,42 @@ describe("OpenAI-compatible provider", () => {
     expect(sentBody?.stream).toBe(true);
   });
 
+  test("processes the final SSE event when the stream ends without a blank separator", async () => {
+    const payload = 'data: {"choices":[{"delta":{"content":"final chunk"}}]}';
+    const client = createOpenAICompatibleClient({
+      baseUrl: "http://localhost:1234/v1",
+      model: "demo",
+      fetch: async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(payload));
+          controller.close();
+        },
+      })),
+    });
+    const parts: string[] = [];
+    for await (const part of client.streamChat([{ role: "user", content: "Hai" }])) parts.push(part);
+    expect(parts.join(" ")).toBe("final chunk");
+  });
+
+  test("joins multi-line SSE data fields before parsing JSON", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          'data: {"choices":[{\n' + 'data: "delta":{"content":"multi-line"}}]}\n\n',
+        ));
+        controller.close();
+      },
+    });
+    const client = createOpenAICompatibleClient({
+      baseUrl: "http://localhost:1234/v1",
+      model: "demo",
+      fetch: async () => new Response(stream),
+    });
+    const parts: string[] = [];
+    for await (const part of client.streamChat([{ role: "user", content: "Hai" }])) parts.push(part);
+    expect(parts.join(" ")).toBe("multi-line");
+  });
+
   test("passes an abort signal to the streaming request", async () => {
     let receivedSignal: AbortSignal | null | undefined;
     const controller = new AbortController();
