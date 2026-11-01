@@ -17,6 +17,7 @@ AkaneChat is an open-source terminal user interface (TUI) for chatting with AI m
 - Configure up to three cross-provider fallback models for transient failures and startup recovery
 - Interactive model selector marks working/failed models and arrow navigation skips failed models
 - Startup workspace directory picker remembers the selected project directory
+- OpenAI-compatible models can use workspace agent tools to list, read, and search files, and propose file writes with explicit user approval
 - Workspace path safety helpers reject traversal and symlinks
 - Optional multi-model council: run 2–4 models in parallel, peer-review answers, then synthesize a final response
 - List available models and switch models during a session
@@ -103,6 +104,7 @@ You can also connect or change the model from inside the TUI:
 - `/fallback add provider::model` — add a fallback (up to three)
 - `/fallback remove provider::model` — remove a fallback
 - `/workspace` — reopen the workspace directory picker
+- `/files` — list readable files in the selected workspace
 - `/council <model-a,model-b[,model-c,model-d]>` — enable bounded multi-model review (2–4 models)
 - Use `provider::model` for cross-provider agents, e.g. `/council openai::gpt-4o,gemini::gemini-2.5-flash,anthropic::claude-sonnet-4-5`. Each provider reads its own environment API key.
 - `/council off` — disable council mode
@@ -121,6 +123,7 @@ You can also connect or change the model from inside the TUI:
 | `/model <model-id>` | Switch the active model after a health check |
 | `/fallback [add/remove provider::model]` | Manage up to three cross-provider fallbacks |
 | `/workspace` | Reopen the startup workspace picker |
+| `/files` | List readable files in the selected workspace |
 | `/council <model-a,model-b,...>` | Enable multi-model review (2–4 models; cross-provider via `provider::model`) |
 | `/council off` | Disable multi-model review |
 | `/new` | Create a new conversation |
@@ -178,3 +181,7 @@ Bug reports, feature requests, and pull requests are welcome. Please include rep
 ## License
 
 AkaneChat is licensed under the **Apache License 2.0**. See [LICENSE](./LICENSE).
+
+## Workspace agent tools
+
+When the active provider is OpenAI-compatible and supports Chat Completions tool calling, AkaneChat can inspect the selected workspace with `list_files`, `read_file`, and `search_files`. It can propose `write_file` operations, but every create/replace waits for an explicit `yes` in the TUI; `no` or `Esc` rejects the change. Paths are restricted to the selected workspace, symlinks and traversal are rejected, sensitive paths such as `.env*`, `.git`, `.ssh`, credential files, and private keys are blocked, and text files are capped at 256 KB. Tool calling is not yet enabled for the native Anthropic and Gemini adapters. Workspace tool rounds are capped at eight per user message.\n

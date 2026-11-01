@@ -14,6 +14,18 @@ export interface ProviderConfig {
   fetch?: FetchLike;
 }
 
+export interface ToolChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_call_id?: string;
+  tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
+}
+
+export interface ToolChatResult {
+  content: string;
+  toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+}
+
 export interface ModelInfo {
   id: string;
   object?: string;
@@ -86,6 +98,28 @@ export function createOpenAICompatibleClient(config: ProviderConfig) {
       await checkResponse(response);
       const payload = (await response.json()) as ModelsResponse;
       return Array.isArray(payload.data) ? payload.data : [];
+    },
+
+    async chatWithTools(messages: ToolChatMessage[], tools: readonly unknown[], signal?: AbortSignal): Promise<ToolChatResult> {
+      if (!config.model.trim()) throw new ProviderError("Choose a model before sending a message.");
+      const response = await request(endpoint(config.baseUrl, "/chat/completions"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ model: config.model, messages, tools, tool_choice: "auto", max_tokens: 2048 }),
+        signal,
+      });
+      await checkResponse(response);
+      const payload = await response.json() as {
+        choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id: string; function?: { name?: string; arguments?: string } }> } }>;
+      };
+      const message = payload.choices?.[0]?.message;
+      const toolCalls = (message?.tool_calls ?? []).map((call) => {
+        let args: Record<string, unknown>;
+        try { args = JSON.parse(call.function?.arguments ?? "{}") as Record<string, unknown>; }
+        catch { throw new ProviderError(`Model returned invalid arguments for tool '${call.function?.name ?? "unknown"}'.`); }
+        return { id: call.id, name: call.function?.name ?? "", arguments: args };
+      });
+      return { content: message?.content ?? "", toolCalls };
     },
 
     async *streamChat(messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<string> {

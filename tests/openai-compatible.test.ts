@@ -49,6 +49,25 @@ describe("OpenAI-compatible provider", () => {
     expect(sentBody?.stream).toBe(true);
   });
 
+  test("supports OpenAI-compatible tool calls and parses their arguments", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    const client = createOpenAICompatibleClient({
+      baseUrl: "http://localhost:1234/v1",
+      model: "demo",
+      fetch: async (_input, init) => {
+        sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ choices: [{ message: {
+          content: "Inspecting the project.",
+          tool_calls: [{ id: "call_1", function: { name: "list_files", arguments: '{"directory":"src"}' } }],
+        } }] });
+      },
+    });
+    const result = await client.chatWithTools([{ role: "user", content: "List files" }], [{ type: "function" }]);
+    expect(sentBody?.tool_choice).toBe("auto");
+    expect(result.content).toBe("Inspecting the project.");
+    expect(result.toolCalls[0]).toEqual({ id: "call_1", name: "list_files", arguments: { directory: "src" } });
+  });
+
   test("processes the final SSE event when the stream ends without a blank separator", async () => {
     const payload = 'data: {"choices":[{"delta":{"content":"final chunk"}}]}';
     const client = createOpenAICompatibleClient({
