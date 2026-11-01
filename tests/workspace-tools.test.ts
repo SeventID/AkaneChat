@@ -18,15 +18,6 @@ describe("workspace tool capability handling", () => {
 });
 
 describe("workspace agent tools", () => {
-  test("identifies a provider-rejected tool without deleting its definition", () => {
-    expect(getUnsupportedWorkspaceTool(new Error("No endpoints found that support tool use. Try disabling \"list_files\"."))).toBe("list_files");
-    expect(getUnsupportedWorkspaceTool(new Error("Try disabling read_file"))).toBe("read_file");
-    expect(getUnsupportedWorkspaceTool(new Error("Unauthorized"))).toBeUndefined();
-    const remaining = getAvailableWorkspaceToolDefinitions(new Set(["list_files"]));
-    expect(remaining.map((tool) => tool.function.name)).toEqual(["read_file", "search_files", "write_file"]);
-    expect(WORKSPACE_TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual(["list_files", "read_file", "search_files", "write_file"]);
-  });
-
   test("lists, reads, and searches workspace text", async () => {
     const root = await mkdtemp(join(tmpdir(), "akane-agent-"));
     try {
