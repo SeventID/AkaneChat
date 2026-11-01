@@ -9,6 +9,7 @@ import {
   TextRenderable,
   createCliRenderer,
 } from "@opentui/core";
+import { resolveProviderEnvironment } from "./providers/registry";
 import {
   createOpenAICompatibleClient,
   type ChatMessage,
@@ -16,12 +17,23 @@ import {
   ProviderError,
 } from "./providers/openai-compatible";
 
-let baseUrl = process.env.AKANECHAT_BASE_URL?.trim() || "";
-const apiKey = process.env.AKANECHAT_API_KEY?.trim() || undefined;
-let model = process.env.AKANECHAT_MODEL?.trim() || "";
-let configured = Boolean(baseUrl && model);
-let client = baseUrl && model
-  ? createOpenAICompatibleClient({ baseUrl, apiKey, model })
+const initialProvider = resolveProviderEnvironment({
+  AKANECHAT_PROVIDER: process.env.AKANECHAT_PROVIDER,
+  AKANECHAT_BASE_URL: process.env.AKANECHAT_BASE_URL,
+  AKANECHAT_API_KEY: process.env.AKANECHAT_API_KEY,
+  AKANECHAT_MODEL: process.env.AKANECHAT_MODEL,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  OLLAMA_API_KEY: process.env.OLLAMA_API_KEY,
+});
+let baseUrl = initialProvider?.config.baseUrl ?? "";
+let apiKey = initialProvider?.config.apiKey;
+let model = initialProvider?.config.model ?? "";
+let providerName = initialProvider?.definition.name ?? "Not configured";
+let configured = Boolean(initialProvider);
+let client = initialProvider
+  ? createOpenAICompatibleClient(initialProvider.config)
   : undefined;
 let activeRequest: AbortController | undefined;
 
@@ -56,7 +68,7 @@ const conversationInfo = new TextRenderable(renderer, { content: `●  ${history
 sidebar.add(conversationInfo);
 sidebar.add(new TextRenderable(renderer, { content: "\nPROVIDER", fg: "#F2A6C7" }));
 const providerInfo = new TextRenderable(renderer, {
-  content: configured ? `${baseUrl}\n\nModel\n${model}` : "Not configured\n\nSet these env vars:\nAKANECHAT_BASE_URL\nAKANECHAT_MODEL\nAKANECHAT_API_KEY (optional)",
+  content: configured ? `${providerName}\n${baseUrl}\n\nModel\n${model}` : "Not configured\n\nSet AKANECHAT_PROVIDER\nAKANECHAT_MODEL\nProvider API key",
   fg: "#AAB4C5",
 });
 sidebar.add(providerInfo);
@@ -86,7 +98,7 @@ body.add(sidebar);
 body.add(panel);
 
 const statusLine = new TextRenderable(renderer, {
-  content: configured ? `Connected target: ${baseUrl}  ·  Model: ${model}` : "Provider not configured  ·  See README for setup",
+  content: configured ? `${providerName} · ${model}` : "Provider not configured  ·  See README for setup",
   fg: "#8792A5",
 });
 const footer = new BoxRenderable(renderer, {
@@ -112,7 +124,7 @@ function addLine(label: string, content: string, color = "#D8DEE9"): TextRendera
 function showWelcome(): void {
   addLine("AKANECHAT", "Your terminal AI workspace is ready.\n\nType a message below to start. Use /help for commands.", "#AAB4C5");
   if (!configured) {
-    addLine("SETUP REQUIRED", "Set AKANECHAT_BASE_URL and AKANECHAT_MODEL. API key is optional for local endpoints.", "#F2A6C7");
+    addLine("SETUP REQUIRED", "Set AKANECHAT_PROVIDER, AKANECHAT_MODEL, and the matching provider API key. Legacy AKANECHAT_BASE_URL configuration is still supported.", "#F2A6C7");
   }
   for (const message of history.messages) addLine(message.role.toUpperCase(), message.content, message.role === "user" ? "#F2A6C7" : "#D8DEE9");
 }
@@ -120,7 +132,7 @@ showWelcome();
 
 async function listModels(): Promise<void> {
   if (!client) {
-    addLine("SYSTEM", "Provider is not configured. Set AKANECHAT_BASE_URL and AKANECHAT_MODEL, then restart.", "#F2A6C7");
+    addLine("SYSTEM", "Provider is not configured. Set AKANECHAT_PROVIDER and AKANECHAT_MODEL, then restart.", "#F2A6C7");
     return;
   }
   setStatus("Fetching available models…");
@@ -155,9 +167,10 @@ async function sendMessage(raw: string): Promise<void> {
       const nextClient = createOpenAICompatibleClient({ baseUrl: nextBaseUrl, apiKey, model: nextModel });
       baseUrl = nextBaseUrl;
       model = nextModel;
+      providerName = "Custom endpoint";
       client = nextClient;
       configured = true;
-      providerInfo.content = `${baseUrl}\n\nModel\n${model}\n\nConnected for this session`;
+      providerInfo.content = `${providerName}\n${baseUrl}\n\nModel\n${model}\n\nConnected for this session`;
       setStatus(`Provider configured · ${model}`);
       addLine("SYSTEM", `Provider target set to ${baseUrl} with model ${model}. API key remains sourced from AKANECHAT_API_KEY.`, "#AAB4C5");
     } catch (error) {
@@ -174,7 +187,7 @@ async function sendMessage(raw: string): Promise<void> {
     }
     model = nextModel;
     client = createOpenAICompatibleClient({ baseUrl, apiKey, model });
-    providerInfo.content = `${baseUrl}\n\nModel\n${model}`;
+    providerInfo.content = `${providerName}\n${baseUrl}\n\nModel\n${model}`;
     setStatus(`Model selected · ${model}`);
     addLine("SYSTEM", `Model changed to ${model}.`, "#AAB4C5");
     return;
@@ -222,7 +235,7 @@ async function sendMessage(raw: string): Promise<void> {
     return;
   }
   if (!client) {
-    addLine("SYSTEM", "Cannot send yet: provider is not configured. Set AKANECHAT_BASE_URL and AKANECHAT_MODEL, then restart AkaneChat.", "#F2A6C7");
+    addLine("SYSTEM", "Cannot send yet: provider is not configured. Set AKANECHAT_PROVIDER and AKANECHAT_MODEL, then restart AkaneChat.", "#F2A6C7");
     return;
   }
 

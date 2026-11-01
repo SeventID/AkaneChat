@@ -38,17 +38,29 @@ akanechat
 
 ## Quick start
 
-AkaneChat uses an OpenAI-compatible endpoint. Set the connection details in your environment:
+AkaneChat currently supports providers that expose the OpenAI Chat Completions API. Choose a built-in provider:
 
 ```bash
-export AKANECHAT_BASE_URL="https://api.example.com/v1"
-export AKANECHAT_API_KEY="your-api-key"
+export AKANECHAT_PROVIDER="openai" # openai, openrouter, groq, ollama, custom
 export AKANECHAT_MODEL="your-model-id"
+export OPENAI_API_KEY="your-api-key"
 
 akanechat
 ```
 
-For a local gateway, use its local URL and the authentication settings required by that gateway. For example, an OmniRoute-compatible endpoint can be configured with its own base URL, key, and model ID.
+Use the matching credential variable for hosted providers:
+
+| Provider | Credential | Default endpoint |
+| --- | --- | --- |
+| OpenAI | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| OpenRouter | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| Groq | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` |
+| Ollama | Optional | `http://127.0.0.1:11434/v1` |
+| Custom / OmniRoute | `AKANECHAT_API_KEY` (if required) | Set `AKANECHAT_BASE_URL` |
+
+You may override any built-in endpoint with `AKANECHAT_BASE_URL`. Existing installations using only `AKANECHAT_BASE_URL`, `AKANECHAT_API_KEY`, and `AKANECHAT_MODEL` remain compatible. Provider credentials are read from the environment and are not persisted in chat history.
+
+**Compatibility note:** Anthropic and Gemini native APIs are not supported yet. They require dedicated adapters and are not included in this registry release.
 
 You can also connect or change the model from inside the TUI:
 
