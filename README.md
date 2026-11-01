@@ -39,12 +39,14 @@ You can also connect or switch models from inside the TUI:
 - `/connect <base-url> <model-id>` — connect for the current session
 - `/models` — list models exposed by the provider
 - `/model <model-id>` — switch model
-- `/new` — start a new conversation
-- `/clear` — clear the current conversation and saved history
+- `/new` — create a new conversation without deleting older chats
+- `/chats` — list saved conversations and their short IDs
+- `/switch <id-prefix>` — reopen a saved conversation
+- `/clear` — clear only the current conversation
 - `/help` — show commands
 - `/quit` — exit
 
-The API key is read only from `AKANECHAT_API_KEY`; it is never written to conversation history. Chat history is stored locally at `~/.local/share/akanechat/history.json`.
+The API key is read only from `AKANECHAT_API_KEY`; it is never written to conversation history. Conversations are stored locally at `~/.local/share/akanechat/history.json`. The store migrates the previous single-history format automatically, writes atomically, and uses restrictive file permissions (directory `0700`, file `0600`). Conversation content is local; provider API keys are not stored in this file.
 
 ## Development
 
