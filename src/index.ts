@@ -73,6 +73,7 @@ let activeRequest: AbortController | undefined;
 let councilModels: string[] = savedSettings?.councilModels ?? [];
 let fallbackModels: string[] = savedSettings?.fallbackModels ?? [];
 let workspacePath = savedSettings?.workspace ?? homedir();
+let workspaceToolsEnabled = savedSettings?.workspaceTools ?? true;
 let workspacePicker: { entries: WorkspaceEntry[]; selected: number; offset: number; line: TextRenderable } | undefined;
 const WORKSPACE_PICKER_ROWS = 8;
 let providerWizard: { step: "base-url" | "api-key" | "model"; baseUrl?: string; apiKey?: string; models?: ModelInfo[] } | undefined;
@@ -135,6 +136,7 @@ async function persistProviderSettings(): Promise<void> {
       ...(councilModels.length ? { councilModels } : {}),
       ...(fallbackModels.length ? { fallbackModels } : {}),
       workspace: workspacePath,
+      workspaceTools: workspaceToolsEnabled,
     });
   } catch {
     setStatus("Provider works, but settings could not be saved");
@@ -681,7 +683,22 @@ async function sendMessage(raw: string): Promise<void> {
     return;
   }
   if (content === "/help") {
-    addLine("HELP", "/status                 show active configuration\n/providers              list supported providers\n/provider add            add custom provider interactively\n/provider <id> [model]  select and save provider\n/connect <url> <model>  use a custom endpoint\n/models [filter]        list/filter provider models\n/model                   open checked model selector\n/model <id>             switch model\n/fallback                list fallback models\n/fallback add p::m       add cross-provider fallback\n/files                  list readable workspace files\n/council <a,b,...>     enable multi-model review (max 4)\n/council off            disable multi-model review\n/new                    start a fresh conversation\n/chats                  list saved conversations\n/switch <id-prefix>     switch conversation\n/clear                  clear only the current conversation\n/help                   show this help\n/quit                   exit AkaneChat", "#AAB4C5");
+    addLine("HELP", "/status                 show active configuration\n/workspace-tools on|off  enable/disable AI workspace tools\n/workspace-tools status   show workspace tool mode\n/providers              list supported providers\n/provider add            add custom provider interactively\n/provider <id> [model]  select and save provider\n/connect <url> <model>  use a custom endpoint\n/models [filter]        list/filter provider models\n/model                   open checked model selector\n/model <id>             switch model\n/fallback                list fallback models\n/fallback add p::m       add cross-provider fallback\n/files                  list readable workspace files\n/council <a,b,...>     enable multi-model review (max 4)\n/council off            disable multi-model review\n/new                    start a fresh conversation\n/chats                  list saved conversations\n/switch <id-prefix>     switch conversation\n/clear                  clear only the current conversation\n/help                   show this help\n/quit                   exit AkaneChat", "#AAB4C5");
+    return;
+  }
+  if (content === "/workspace-tools" || content === "/workspace-tools status") {
+    addLine("WORKSPACE TOOLS", `AI workspace tools are ${workspaceToolsEnabled ? "ON" : "OFF"}.\nUse /workspace-tools on or /workspace-tools off to change this setting.`, "#AAB4C5");
+    return;
+  }
+  if (content === "/workspace-tools on" || content === "/workspace-tools off") {
+    workspaceToolsEnabled = content.endsWith(" on");
+    await persistProviderSettings();
+    addLine("WORKSPACE TOOLS", `AI workspace tools turned ${workspaceToolsEnabled ? "ON" : "OFF"}. ${workspaceToolsEnabled ? "Models may receive workspace tool definitions when supported." : "Chat requests will not include workspace tool definitions; ordinary chat remains available."}`, "#8FD7A5");
+    setStatus(`Workspace tools · ${workspaceToolsEnabled ? "ON" : "OFF"}`);
+    return;
+  }
+  if (content.startsWith("/workspace-tools ")) {
+    addLine("USAGE", "/workspace-tools on | off | status", "#F2A6C7");
     return;
   }
   if (content === "/workspace") {
@@ -696,7 +713,7 @@ async function sendMessage(raw: string): Promise<void> {
     return;
   }
   if (content === "/status") {
-    addLine("ACTIVE CONFIGURATION", `Provider: ${providerName} (${providerId || "none"})\nModel: ${model || "none"}\nEndpoint: ${baseUrl || "none"}\nCouncil: ${councilModels.length ? councilModels.join(", ") : "off"}`, "#AAB4C5");
+    addLine("ACTIVE CONFIGURATION", `Provider: ${providerName} (${providerId || "none"})\nModel: ${model || "none"}\nEndpoint: ${baseUrl || "none"}\nWorkspace tools: ${workspaceToolsEnabled ? "on" : "off"}\nCouncil: ${councilModels.length ? councilModels.join(", ") : "off"}`, "#AAB4C5");
     return;
   }
   if (content === "/providers") {
@@ -917,7 +934,7 @@ async function sendMessage(raw: string): Promise<void> {
   activeRequest = requestController;
 
   try {
-    if (client?.chatWithTools) {
+    if (workspaceToolsEnabled && client?.chatWithTools) {
       assistantMessage.content = await collectWorkspaceAgent(client, pending, requestController.signal);
       assistantLine.content = `AKANE\n${assistantMessage.content}`;
     } else {
