@@ -95,7 +95,7 @@ export function createOpenAICompatibleClient(config: ProviderConfig) {
       const response = await request(endpoint(config.baseUrl, "/chat/completions"), {
         method: "POST",
         headers: { ...headers, accept: "text/event-stream" },
-        body: JSON.stringify({ model: config.model, messages, stream: true }),
+        body: JSON.stringify({ model: config.model, messages, stream: true, max_tokens: 2048 }),
         signal,
       });
       await checkResponse(response);

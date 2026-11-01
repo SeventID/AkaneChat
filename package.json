@@ -1,7 +1,7 @@
 {
   "name": "akanechat",
   "version": "0.1.2",
-  "description": "A full-screen terminal AI chat client for OpenAI-compatible APIs, built with Bun and OpenTUI.",
+  "description": "A multi-provider terminal AI workspace with native streaming and multi-model review, built with Bun and OpenTUI.",
   "license": "Apache-2.0",
   "author": "SeventID",
   "type": "module",
@@ -24,7 +24,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@opentui/core": "^0.6.8"
+    "@opentui/core": "npm:@androidtui/core@0.8.0"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",

@@ -1,6 +1,6 @@
 import type { ProviderConfig } from "./openai-compatible";
 
-export type ProviderKind = "openai-compatible";
+export type ProviderKind = "openai-compatible" | "anthropic" | "gemini";
 
 export interface ProviderDefinition {
   id: string;
@@ -50,6 +50,24 @@ export const PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     description: "Local Ollama OpenAI-compatible endpoint",
   },
   {
+    id: "anthropic",
+    name: "Anthropic",
+    kind: "anthropic",
+    baseUrl: "https://api.anthropic.com",
+    apiKeyEnv: "ANTHROPIC_API_KEY",
+    requiresApiKey: true,
+    description: "Native Anthropic Messages API",
+  },
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    kind: "gemini",
+    baseUrl: "https://generativelanguage.googleapis.com",
+    apiKeyEnv: "GEMINI_API_KEY",
+    requiresApiKey: true,
+    description: "Native Google Gemini API",
+  },
+  {
     id: "custom",
     name: "Custom endpoint",
     kind: "openai-compatible",
@@ -67,6 +85,8 @@ export interface ProviderEnvironment {
   OPENROUTER_API_KEY?: string;
   GROQ_API_KEY?: string;
   OLLAMA_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  GEMINI_API_KEY?: string;
 }
 
 export interface ResolvedProvider {

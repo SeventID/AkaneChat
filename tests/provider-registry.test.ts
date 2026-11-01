@@ -6,9 +6,9 @@ import {
 } from "../src/providers/registry";
 
 describe("provider registry", () => {
-  test("contains only providers currently supported by the OpenAI-compatible adapter", () => {
+  test("contains built-in compatible and native providers", () => {
     expect(PROVIDER_REGISTRY.map((item) => item.id)).toEqual([
-      "openai", "openrouter", "groq", "ollama", "custom",
+      "openai", "openrouter", "groq", "ollama", "anthropic", "gemini", "custom",
     ]);
     expect(getProviderDefinition("openrouter")?.baseUrl).toBe("https://openrouter.ai/api/v1");
   });
@@ -55,6 +55,15 @@ describe("provider registry", () => {
       AKANECHAT_PROVIDER: "groq",
       AKANECHAT_MODEL: "llama-example",
     })).toThrow("GROQ_API_KEY");
+  });
+
+  test("resolves native Anthropic and Gemini providers with their dedicated keys", () => {
+    const anthropic = resolveProviderEnvironment({ AKANECHAT_PROVIDER: "anthropic", AKANECHAT_MODEL: "claude-model", ANTHROPIC_API_KEY: "anthropic-secret" });
+    const gemini = resolveProviderEnvironment({ AKANECHAT_PROVIDER: "gemini", AKANECHAT_MODEL: "gemini-model", GEMINI_API_KEY: "gemini-secret" });
+    expect(anthropic?.definition.kind).toBe("anthropic");
+    expect(anthropic?.config.apiKey).toBe("anthropic-secret");
+    expect(gemini?.definition.kind).toBe("gemini");
+    expect(gemini?.config.apiKey).toBe("gemini-secret");
   });
 
   test("allows a custom OmniRoute-compatible endpoint", () => {
