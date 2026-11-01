@@ -73,7 +73,8 @@ let activeRequest: AbortController | undefined;
 let councilModels: string[] = savedSettings?.councilModels ?? [];
 let fallbackModels: string[] = savedSettings?.fallbackModels ?? [];
 let workspacePath = savedSettings?.workspace ?? homedir();
-let workspacePicker: { entries: WorkspaceEntry[]; selected: number; line: TextRenderable } | undefined;
+let workspacePicker: { entries: WorkspaceEntry[]; selected: number; offset: number; line: TextRenderable } | undefined;
+const WORKSPACE_PICKER_ROWS = 8;
 let providerWizard: { step: "base-url" | "api-key" | "model"; baseUrl?: string; apiKey?: string; models?: ModelInfo[] } | undefined;
 let pendingApproval: { path: string; existed: boolean; resolve: (approved: boolean) => void } | undefined;
 
@@ -252,7 +253,7 @@ async function openWorkspacePicker(): Promise<void> {
     ];
     const selected = Math.max(0, entries.findIndex((entry) => entry.path === workspacePath));
     const line = addLine("SELECT WORKSPACE", "", "#AAB4C5");
-    workspacePicker = { entries, selected, line };
+    workspacePicker = { entries, selected, offset: Math.max(0, selected - WORKSPACE_PICKER_ROWS + 1), line };
     renderWorkspacePicker();
     setStatus("Choose a workspace · ↑ ↓ navigate · Enter select");
   } catch (error) {
@@ -262,9 +263,25 @@ async function openWorkspacePicker(): Promise<void> {
 
 function renderWorkspacePicker(): void {
   if (!workspacePicker) return;
+  const { entries, selected } = workspacePicker;
+  const maxOffset = Math.max(0, entries.length - WORKSPACE_PICKER_ROWS);
+  workspacePicker.offset = Math.min(maxOffset, Math.max(0, selected < workspacePicker.offset
+    ? selected
+    : selected >= workspacePicker.offset + WORKSPACE_PICKER_ROWS
+      ? selected - WORKSPACE_PICKER_ROWS + 1
+      : workspacePicker.offset));
+  const visible = entries.slice(workspacePicker.offset, workspacePicker.offset + WORKSPACE_PICKER_ROWS);
+  const first = workspacePicker.offset + 1;
+  const last = workspacePicker.offset + visible.length;
   workspacePicker.line.content = [
     "WORKSPACE · ↑ ↓ navigate · Enter select · Esc keep current",
-    ...workspacePicker.entries.map((entry, index) => (index === workspacePicker!.selected ? "▶" : " ") + " 📁 " + entry.name),
+    `Folders ${first}-${last} of ${entries.length} · ${selected + 1}/${entries.length}`,
+    ...(workspacePicker.offset > 0 ? ["  ↑ more folders above"] : []),
+    ...visible.map((entry, index) => {
+      const actualIndex = workspacePicker!.offset + index;
+      return (actualIndex === selected ? "▶" : " ") + " 📁 " + entry.name;
+    }),
+    ...(workspacePicker.offset + visible.length < entries.length ? ["  ↓ more folders below"] : []),
   ].join("\n");
 }
 void openWorkspacePicker();
