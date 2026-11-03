@@ -1,12 +1,12 @@
-import { lstat, readdir, readFile, realpath, stat, mkdir, open } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, stat, mkdir, open, rename, link, unlink } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname } from "node:path";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep, dirname, basename } from "node:path";
+import { randomUUID } from "node:crypto";
 
 const BLOCKED_NAMES = new Set([
   ".env", ".env.local", ".env.production", ".env.development", ".git", ".ssh",
   ".gnupg", ".npmrc", ".pypirc", ".netrc", "authorized_keys", "known_hosts",
-  "node_modules", "vendor", "dist", "build", "coverage", ".cache",
+  "node_modules", "vendor", "dist", "build", "coverage", ".cache", ".akane-backups",
 ]);
 const SECRET_FILE = /(^|\.)(id_rsa|id_ed25519|id_ecdsa|credentials?|secrets?)(\.|$)|\.(pem|key|p12|pfx)$/i;
 const MAX_FILE_BYTES = 256_000;
@@ -163,17 +163,39 @@ export async function executeWorkspaceReadTool(root: string, call: WorkspaceTool
   }
 }
 
-export async function applyWorkspaceWrite(root: string, pending: PendingWorkspaceWrite): Promise<void> {
+export async function applyWorkspaceWrite(root: string, pending: PendingWorkspaceWrite): Promise<{ backupPath?: string }> {
   const target = await safeWorkspacePath(root, pending.path);
   await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-  // Revalidate after directory creation and refuse a symlink swap at the final path.
   await safeWorkspacePath(root, pending.path);
-  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | (pending.existed ? constants.O_TRUNC : constants.O_EXCL);
-  const handle = await open(target, flags, 0o600);
+
+  let backupPath: string | undefined;
+  if (pending.existed) {
+    const current = await readFile(target);
+    const rootReal = await realpath(root);
+    const backupRoot = resolve(rootReal, ".akane-backups");
+    const relativePath = relative(rootReal, target);
+    const backupTarget = resolve(backupRoot, `${relativePath}.${Date.now()}.${randomUUID().slice(0, 8)}.bak`);
+    if (!backupTarget.startsWith(`${backupRoot}/`)) throw new Error("Backup path escaped the workspace.");
+    await mkdir(dirname(backupTarget), { recursive: true, mode: 0o700 });
+    const backupHandle = await open(backupTarget, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try { await backupHandle.writeFile(current); await backupHandle.sync(); } finally { await backupHandle.close(); }
+    backupPath = relative(rootReal, backupTarget);
+  }
+
+  const temporary = resolve(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
+    handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     await handle.writeFile(pending.content, "utf8");
     await handle.sync();
-  } finally {
     await handle.close();
+    handle = undefined;
+    await safeWorkspacePath(root, pending.path);
+    if (!pending.existed) await link(temporary, target);
+    else await rename(temporary, target);
+    return backupPath ? { backupPath } : {};
+  } finally {
+    if (handle) await handle.close().catch(() => undefined);
+    await unlink(temporary).catch(() => undefined);
   }
 }

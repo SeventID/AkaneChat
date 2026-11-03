@@ -1,6 +1,6 @@
 {
   "name": "akanechat",
-  "version": "0.1.2",
+  "version": "0.1.5-beta.0",
   "description": "A multi-provider terminal AI workspace with native streaming and multi-model review, built with Bun and OpenTUI.",
   "license": "Apache-2.0",
   "author": "SeventID",

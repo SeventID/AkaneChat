@@ -46,3 +46,23 @@ describe("app settings", () => {
     }
   });
 });
+
+test("persists explicit model capability metadata without credentials", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "akane-settings-"));
+  const path = join(directory, "settings.json");
+  try {
+    await saveSettings(path, { version: 1, provider: "custom", model: "chat", modelCapabilities: { "custom::vision-model": ["chat", "vision", "vision"], "custom::image-model": ["image_generation"] } });
+    const settings = await loadSettings(path);
+    expect(settings?.modelCapabilities?.["custom::vision-model"]).toEqual(["chat", "vision"]);
+    expect(settings?.modelCapabilities?.["custom::image-model"]).toEqual(["image_generation"]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("rejects invalid capability metadata", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "akane-settings-"));
+  const path = join(directory, "settings.json");
+  try {
+    await Bun.write(path, JSON.stringify({ version: 1, provider: "custom", model: "chat", modelCapabilities: { "x": ["chat", "execute_shell"] } }));
+    expect((await loadSettings(path))?.modelCapabilities).toBeUndefined();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

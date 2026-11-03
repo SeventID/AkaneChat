@@ -54,8 +54,11 @@ describe("workspace agent tools", () => {
       expect(await readFile(join(root, "new", "file.txt"), "utf8")).toBe("hello");
       const replacement = await prepareWorkspaceWrite(root, "new/file.txt", "updated");
       expect(replacement.existed).toBe(true);
-      await applyWorkspaceWrite(root, replacement);
+      const result = await applyWorkspaceWrite(root, replacement);
       expect(await readFile(join(root, "new", "file.txt"), "utf8")).toBe("updated");
+      expect(result.backupPath).toBeDefined();
+      expect(await readFile(join(root, result.backupPath!), "utf8")).toBe("hello");
+      await expect(listWorkspaceFiles(root)).resolves.toEqual(["new/file.txt"]);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
