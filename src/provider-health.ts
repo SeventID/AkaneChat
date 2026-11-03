@@ -3,7 +3,7 @@ import type { ChatMessage } from "./providers/openai-compatible";
 export type HealthState = "WORKING" | "FAILED" | "UNCHECKED";
 export interface ProbeClient { streamChat(messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<string> }
 
-export async function checkModel(client: ProbeClient, timeoutMs = 12_000): Promise<{ ok: boolean; reason?: string; retryable?: boolean }> {
+export async function checkModel(client: ProbeClient, timeoutMs = 30_000): Promise<{ ok: boolean; reason?: string; retryable?: boolean }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error("Health check timed out.")), timeoutMs);
   try {

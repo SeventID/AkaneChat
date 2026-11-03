@@ -458,7 +458,7 @@ async function checkStartupModel(): Promise<void> {
 }
 void checkStartupModel();
 
-interface ModelChoice { id: string; ok: boolean; reason?: string }
+interface ModelChoice { id: string; ok: boolean; checked: boolean; reason?: string }
 let modelPicker: { choices: ModelChoice[]; selected: number; line: TextRenderable } | undefined;
 
 function renderModelPicker(): void {
@@ -467,7 +467,7 @@ function renderModelPicker(): void {
     "MODEL SELECTOR · ↑ ↓ navigate · Enter activate · Esc close",
     ...modelPicker.choices.map((choice, index) => {
       const marker = index === modelPicker!.selected ? "▶" : " ";
-      const state = choice.ok ? "● WORKING" : "○ FAILED";
+      const state = !choice.checked ? "◌ UNCHECKED" : choice.ok ? "● WORKING" : "○ FAILED";
       return `${marker} ${state.padEnd(11)} ${choice.id}${choice.reason ? ` · ${choice.reason}` : ""}`;
     }),
   ].join("\n");
@@ -480,20 +480,21 @@ async function openModelPicker(): Promise<void> {
   }
   setStatus("Loading model catalogue…");
   try {
-    const catalogue = (await client.listModels()).slice(0, 20);
+    const catalogue = (await client.listModels()).slice(0, 60);
     if (!catalogue.length) throw new Error("No models were returned by the provider.");
-    const choices: ModelChoice[] = [];
-    for (const item of catalogue) {
-      setStatus(`Checking model ${choices.length + 1}/${catalogue.length} · ${item.id}`);
-      const result = await checkModel(createClientForModel(item.id));
-      choices.push({ id: item.id, ok: result.ok, ...(result.reason ? { reason: result.reason } : {}) });
+    const choices: ModelChoice[] = catalogue.map((item) => ({
+      id: item.id,
+      ok: item.id === model,
+      checked: item.id === model,
+    }));
+    if (model && !choices.some((item) => item.id === model)) {
+      choices.unshift({ id: model, ok: true, checked: true });
     }
-    const firstWorking = choices.findIndex((item) => item.ok);
-    const currentIndex = choices.findIndex((item) => item.id === model && item.ok);
+    const currentIndex = choices.findIndex((item) => item.id === model);
     const line = addLine("MODEL SELECTOR", "", "#AAB4C5");
-    modelPicker = { choices, selected: currentIndex >= 0 ? currentIndex : Math.max(0, firstWorking), line };
+    modelPicker = { choices, selected: Math.max(0, currentIndex), line };
     renderModelPicker();
-    setStatus(`${choices.filter((item) => item.ok).length} working · ${choices.filter((item) => !item.ok).length} failed · choose with arrows`);
+    setStatus(`${choices.length} models loaded · select one to run its health check`);
   } catch (error) {
     addLine("MODEL DISCOVERY FAILED", error instanceof Error ? error.message : String(error), "#FF8A8A");
     setStatus("Could not open model selector");
@@ -503,14 +504,17 @@ async function openModelPicker(): Promise<void> {
 async function activatePickedModel(): Promise<void> {
   if (!modelPicker) return;
   const choice = modelPicker.choices[modelPicker.selected];
-  if (!choice?.ok) return;
+  if (!choice) return;
   const nextClient = createClientForModel(choice.id);
+  setStatus(`Testing selected model · ${choice.id}…`);
   const health = await checkModel(nextClient);
+  choice.checked = true;
+  choice.ok = health.ok;
+  choice.reason = health.reason;
   if (!health.ok) {
-    choice.ok = false;
-    choice.reason = health.reason;
     renderModelPicker();
-    setStatus("Model became unavailable; choose another WORKING model");
+    setStatus("Model check failed · previous model remains active · Enter to retry");
+    addLine("MODEL FAILED", `${choice.id} · ${health.reason ?? "Unavailable"}. Previous model remains active; select again to retry.`, "#FF8A8A");
     return;
   }
   model = choice.id;
