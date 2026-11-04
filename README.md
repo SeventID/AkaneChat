@@ -4,7 +4,7 @@
 
 AkaneChat is an open-source terminal user interface (TUI) for chatting with AI models directly from your terminal. It is built with [Bun](https://bun.sh/) and [OpenTUI](https://github.com/anomalyco/opentui), and can connect to local gateways such as OmniRoute or any service that exposes a compatible OpenAI Chat Completions API.
 
-> **Version 0.1.5-beta.3 [BETA]:** adds bounded autonomous job execution, persistent job records/checkpoints, independent parallel read-only agents, and verification/replanning stages. The job runner currently lives inside the TUI process: closing AkaneChat stops active work. Interrupted jobs require manual resume, and workspace changes still require the existing approval flow. A detached daemon and automatic checkpoint continuation are not included yet.
+> **Version 0.1.5-beta.4 [BETA]:** adds bounded autonomous job execution, persistent job records/checkpoints, independent parallel read-only agents, and verification/replanning stages. The job runner currently lives inside the TUI process: closing AkaneChat stops active work. Interrupted jobs require manual resume, and workspace changes still require the existing approval flow. A detached daemon and automatic checkpoint continuation are not included yet.
 
 ## Features
 

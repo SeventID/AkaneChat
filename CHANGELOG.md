@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5-beta.4 [BETA] - 2026-11-04
+
+- Add a root-level executable shim so npm can reliably generate the global `akanechat` command without rewriting or dropping the binary mapping.
+
 ## 0.1.5-beta.3 [BETA] - 2026-11-04
 
 - Normalize the npm executable entry point to the package-name string form and add a regression test for the published CLI binary mapping.
