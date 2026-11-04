@@ -4,7 +4,7 @@
 
 AkaneChat is an open-source terminal user interface (TUI) for chatting with AI models directly from your terminal. It is built with [Bun](https://bun.sh/) and [OpenTUI](https://github.com/anomalyco/opentui), and can connect to local gateways such as OmniRoute or any service that exposes a compatible OpenAI Chat Completions API.
 
-> **Version 0.1.5-beta.0 [BETA]:** adds bounded autonomous job execution, persistent job records/checkpoints, independent parallel read-only agents, and verification/replanning stages. The job runner currently lives inside the TUI process: closing AkaneChat stops active work. Interrupted jobs require manual resume, and workspace changes still require the existing approval flow. A detached daemon and automatic checkpoint continuation are not included yet.
+> **Version 0.1.5-beta.2 [BETA]:** adds bounded autonomous job execution, persistent job records/checkpoints, independent parallel read-only agents, and verification/replanning stages. The job runner currently lives inside the TUI process: closing AkaneChat stops active work. Interrupted jobs require manual resume, and workspace changes still require the existing approval flow. A detached daemon and automatic checkpoint continuation are not included yet.
 
 ## Features
 
@@ -17,7 +17,7 @@ AkaneChat is an open-source terminal user interface (TUI) for chatting with AI m
 - Add multiple named custom OpenAI-compatible providers with persistent `.env` configuration and automatic model discovery
 - Health-check the active model at startup and before switching models; retain the previous model when checks fail
 - Configure up to three cross-provider fallback models for transient failures and startup recovery
-- Interactive model selector marks working/failed models and arrow navigation skips failed models
+- Interactive model selector loads up to 60 model IDs without probing them serially; it health-checks only the selected model, retains the previous active model on failure, and supports retry
 - Startup workspace directory picker remembers the selected project directory
 - OpenAI-compatible models can use workspace agent tools to list, read, and search files, and propose file writes with explicit user approval
 - Workspace path safety helpers reject traversal and symlinks
@@ -55,7 +55,7 @@ akanechat
 
 The TUI dependency is aliased to [`@androidtui/core`](https://github.com/bd-loser/opentui), an Android-compatible OpenTUI distribution that supplies the Android ARM64 native library while retaining the upstream imperative API. It also supplies platform-specific native packages for desktop Linux/macOS/Windows.
 
-Bun's Android support is experimental. For Termux, the ANDROIDTUI maintainers document a patched Bun runtime in [`bd-loser/bun-termux`](https://github.com/bd-loser/bun-termux), and their OpenTUI distribution documents native Termux support. This project has passed desktop Linux build/type tests, but a real-device AkaneChat render test is still required before claiming Android runtime validation. Do not use proot for this path.
+Bun's Android support is experimental. For Termux, the ANDROIDTUI maintainers document a patched Bun runtime in [`bd-loser/bun-termux`](https://github.com/bd-loser/bun-termux), and their OpenTUI distribution documents native Termux support. The current release has passed desktop Linux typecheck, build, and automated unit tests. A real-device AkaneChat render test is still required before claiming Android runtime validation. Do not use proot for this path.
 
 ```bash
 # In Termux ARM64, install the Android-compatible Bun runtime following its upstream instructions.
@@ -94,7 +94,7 @@ You may override any built-in endpoint with `AKANECHAT_BASE_URL`. Existing insta
 
 Anthropic and Gemini use dedicated native adapters; OpenAI, OpenRouter, Groq, Ollama, and custom gateways use the OpenAI Chat Completions protocol. Provider API keys are read from the matching environment variables and are never saved in `settings.json`. Environment variables override saved preferences.
 
-At startup, if the configured default model fails its live chat health check, AkaneChat automatically queries the active OpenAI-compatible endpoint at `BASE_URL/models`, then tests up to 40 other returned model IDs sequentially with a minimal chat request. The terminal prints each candidate and its `WORKING`/`FAILED` result. The first working model is selected and saved as the new default. This discovery is limited to the configured endpoint; it does not scan unrelated network hosts. Native Anthropic/Gemini adapters use their own model APIs and do not use this OpenAI-compatible fallback scan.
+At startup, AkaneChat checks the configured default model. If it fails, it queries only the configured OpenAI-compatible endpoint at `BASE_URL/models` and tests returned alternatives sequentially (bounded by the endpoint catalogue), selecting and saving the first working model. This discovery never scans unrelated network hosts. Native Anthropic/Gemini adapters use their own model APIs and do not use this OpenAI-compatible fallback scan. The interactive `/model` selector does not health-check the entire catalogue: it loads up to 60 IDs and checks a model only after you select it, keeping startup and browsing responsive on large model catalogues.
 
 You can also connect or change the model from inside the TUI:
 

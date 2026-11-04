@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5-beta.2 [BETA] - 2026-11-04
+
+- Keep model-catalogue browsing responsive: load model IDs first and health-check only the selected model.
+- Preserve the currently active model when a selected model fails its health check; allow retry without losing the previous selection.
+- Scope the package test script to AkaneChat own tests suite so unrelated, untracked workspace directories are never executed.
+- Refresh release and Android validation notes; desktop checks pass, but real-device Termux rendering remains an explicit beta validation item.
+
 ## 0.1.5-beta.0 [BETA] - 2026-11-03
 
 - Preview release of bounded autonomous execution, persistent job records and checkpoints, read-only parallel agents, and verification/replanning stages.

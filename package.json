@@ -1,6 +1,6 @@
 {
   "name": "akanechat",
-  "version": "0.1.5-beta.1",
+  "version": "0.1.5-beta.2",
   "description": "A multi-provider terminal AI workspace with native streaming and multi-model review, built with Bun and OpenTUI.",
   "license": "Apache-2.0",
   "author": "SeventID",
@@ -21,7 +21,7 @@
     "start": "bun src/index.ts",
     "build": "bun build src/index.ts --target=bun --external @opentui/* --outfile=dist/index.js",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test tests/*.test.ts"
   },
   "dependencies": {
     "@opentui/core": "npm:@androidtui/core@0.8.0"
