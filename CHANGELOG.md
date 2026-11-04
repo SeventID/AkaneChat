@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5-beta.3 [BETA] - 2026-11-04
+
+- Normalize the npm executable entry point to the package-name string form and add a regression test for the published CLI binary mapping.
+
 ## 0.1.5-beta.2 [BETA] - 2026-11-04
 
 - Keep model-catalogue browsing responsive: load model IDs first and health-check only the selected model.
